@@ -26,7 +26,9 @@ class Character
 
   draw()
   {
-    gG.drawImage( gImg, this.mIdx * 16, 0, 16, 16, this.mX, this.mY, 16, 16 ); 
+    if( this.mVisible ){
+      gG.drawImage( gImg, this.mIdx * 16, 0, 16, 16, this.mX, this.mY, 16, 16 ); 
+    }
   }
 
   isInCircle( x, y, s )
@@ -42,17 +44,113 @@ class Character
     if( !this.mVisible ){
       return;
     }
-    
+
     this.mX += this.mDX;
     this.mY += this.mDY;
     this.mVisible = this.contains();
   }
 }
 
+class CharaMgr
+{
+  constructor()
+  {
+    this.mList = [];
+  }
+
+  draw()
+  {
+    for( let o of this.mList ){
+      o.draw();
+    }
+  }
+
+  searchInCircle( x, y, s )
+  {
+    for( let o of this.mList ){
+      if( !o.mVisible ){
+        continue;
+      }
+      if( o.isInCircle( x, y, s )){
+        return( o );
+      }
+    }
+    return( null );
+  }
+
+  searchNoVisible()
+  {
+    for( let o of this.mList ){
+      if( !o.mVisible ){
+        return( o );
+      }
+    }
+    return( null );
+  }
+
+  tick()
+  {
+    for( let o of this.mList ){
+      o.tick();
+    }
+  }
+}
+
+class Bullet extends Character
+{
+  static sMgr = new CharaMgr();
+
+  constructor()
+  {
+    super( 3 );
+  }
+
+  static Appear( x, y )
+  {
+    for( let i = 0; i < 32; i++){
+      Bullet.GetInstance().appear( x, y, Math.PI * i / 16 );
+    }
+  }
+
+  static Draw()
+  {
+    Bullet.sMgr.draw();
+  }
+
+  static GetInstance()
+  {
+    let r = Bullet.sMgr.searchNoVisible();
+    if( !r ){
+      r = new Bullet();
+      Bullet.sMgr.mList.push( r );
+    }
+    return( r );
+  }
+
+  static SearchInCircle( x, y )
+  {
+    return( Bullet.sMgr.searchInCircle( x, y, 16 ) );
+  }
+
+  static Tick()
+  {
+    Bullet.sMgr.tick();
+  }
+
+  appear( x, y, a )
+  {
+    this.mX = x;
+    this.mY = y;
+    this.mDX = Math.cos( a );
+    this.mDY = Math.sin( a );
+    this.mVisible = true;
+  }
+}
 
 class Enemy extends Character
 {
-  static sObj = new Enemy();
+  static sMgr = new CharaMgr();
+  static sCount = 0;
 
   constructor()
   {
@@ -65,7 +163,7 @@ class Enemy extends Character
 
   static Appear()
   {
-    let o = Enemy.sObj;
+    let o = Enemy.GetInstance();
 
     o.mX = Math.floor( Math.random() * WIDTH ) - 8;
     o.mY = -15;
@@ -76,18 +174,29 @@ class Enemy extends Character
 
   static Draw()
   {
-    Enemy.sObj.draw();
+    Enemy.sMgr.draw();
   }
 
-  static IsInCircle( x, y )
+  static GetInstance()
   {
-    return( Enemy.sObj.isInCircle( x, y, 100 ) );
+    let r = Enemy.sMgr.searchNoVisible();
+    if( !r ){
+      r = new Enemy();
+      Enemy.sMgr.mList.push( r );
+    }
+    return( r );
+  }
+
+  static SearchInCircle( x, y, s )
+  {
+    return( Enemy.sMgr.searchInCircle( x, y, s ) );
   }
 
   static Tick()
   {
-    Enemy.sObj.tick();
-    if( !Enemy.sObj.mVisible ){
+    Enemy.sMgr.tick();
+    if( Enemy.sCount++ > 20){
+      Enemy.sCount = 0;
       Enemy.Appear();
     }
   }
@@ -109,19 +218,26 @@ class Missile extends Character
     Missile.sObj.draw();
   }
 
-  static Tick()
+  static Shot()
   {
     let o = Missile.sObj;
-    o.tick();
     if( !o.mVisible ){
       o.mVisible = true;
       o.mX = Player.sObj.mX;
       o.mY = Player.sObj.mY;
     }
+  }
 
-    if( Enemy.IsInCircle( o.mX + 8, o.mY + 8, 100 )){
-      Enemy.sObj.mVisible = false;
+  static Tick()
+  {
+    let o = Missile.sObj;
+    o.tick();
+
+    let e = Enemy.SearchInCircle( o.mX + 8, o.mY + 8, 200 );
+    if( e ){
+      e.mVisible = false;
       o.mVisible = false;
+      Bullet.Appear( e.mX, e.mY );
     }
   }
 }
@@ -136,6 +252,7 @@ class Player extends Character
     super( 0 );
     this.mX = 112;
     this.mY = 160;
+    this.mVisible = true;
   }
   
   static Draw()
@@ -150,8 +267,12 @@ class Player extends Character
     if( gKey[ 38 ] ) o.mY -= 2;
     if( gKey[ 39 ] ) o.mX += 2;
     if( gKey[ 40 ] ) o.mY += 2;
+    if( gKey[ 90 ] ) Missile.Shot();
 
-    gGameOver = Enemy.IsInCircle( o.mX + 8, o.mY + 8 );
+    let x = o.mX + 8;
+    let y = o.mY + 8;
+    gGameOver = ( Enemy.SearchInCircle( x, y, 100 ) != null ) ||
+                ( Bullet.SearchInCircle( x, y ) != null );
   }
 }
 
@@ -163,6 +284,7 @@ function draw()
   Player.Draw();
   Enemy.Draw();
   Missile.Draw();
+  Bullet.Draw();
 
   let e = document.getElementById("main");
   let g = e.getContext("2d");
@@ -181,6 +303,7 @@ function tick()
   Player.Tick();
   Missile.Tick();
   Enemy.Tick();
+  Bullet.Tick();
 }
 
 function onPaint()
